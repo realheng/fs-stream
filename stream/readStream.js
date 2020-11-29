@@ -21,6 +21,8 @@ class ReadStream extends EventEmitter {
     this.flowing = null
     this.close = false
     this.bytesRead = 0
+    this.lastTime = 0
+    this.readTimes = 0
     // 缓存池的偏移量
     this.pos = this.start
     // 初始化的时候就打开文件,获取文件描述符
@@ -38,6 +40,7 @@ class ReadStream extends EventEmitter {
 
   // 暂停读取
   pause () {
+    console.log('pause')
     this.flowing = false
   }
 
@@ -57,7 +60,7 @@ class ReadStream extends EventEmitter {
         this.read()
       })
     }
-
+    const thisTime = this.readTimes++
     // 读取文件的逻辑梳理
     // 首先需要知道要读取多少字节,从哪里开始读
     // 读取的字节数需要从highWaterMark和剩余字节数两个中取最小
@@ -65,46 +68,57 @@ class ReadStream extends EventEmitter {
 
     // 如果有结束位置,那么就需要判断到结束还剩多少个字节,和highwatermark做对比
     // 如果没有结束位置,那么直接读取highwatermark即可
+
+    // 只有stream的读取是这样需要+1,一般都是this.end - this.start
+    // 例如:this.end = 10, this.start = 0, 按照常规来说读取的字节数应该是this.end - this.start = 10
+    // 但stream需要加1,不知道为啥~
     const howMuchToRead = this.end
-      ? // 只有stream的读取是这样需要+1,一般都是this.end - this.start
-        // 例如:this.end = 10, this.start = 0, 按照常规来说读取的字节数应该是this.end - this.start = 10
-        // 但stream需要加1,不知道为啥~
-        Math.min(this.end - this.start + 1 - this.pos, this.highWaterMark)
+      ? Math.min(this.end - this.start + 1 - this.pos, this.highWaterMark)
       : this.highWaterMark
 
     const buf = Buffer.alloc(howMuchToRead)
+
     // fs.read和fs.write参数的位置都是一样的
     // 先是fd,然后的buf,然后是buf的起始位置,读取或者写入的字节长度,读取或者写入的文件的位置
     // 无论是write还是read都是从源头的某一位置读取n个字节,从目标的某一个位置开始写入
     // 在fs.read中,源头是文件,目标是buf
     // 在fs.write中,源头是buf,目标是文件
     fs.read(this.fd, buf, 0, howMuchToRead, this.pos, (err, bytesRead) => {
-      this.bytesRead += bytesRead
+      // 因为读取是异步的,先执行的不一定比后执行的快
+      // 所以顺序不对的回调就需要抛弃
+      if (thisTime >= this.lastTime) {
+        this.lastTime = thisTime
+      } else {
+        return
+      }
+      this.length += bytesRead
       if (err) {
         return this.emit('error', err)
       }
       if (bytesRead > 0) {
-        this.pos += bytesRead
-        console.log('emit!!')
-
-        this.emit(
-          'data',
-          this.encoding
-            ? buf.slice(0, bytesRead).toString(this.encoding)
-            : buf.slice(0, bytesRead)
-        )
-        // 继续触发读取
-        this.read()
+        if (this.flowing) {
+          this.pos += bytesRead
+          this.bytesRead += bytesRead
+          this.emit(
+            'data',
+            this.encoding
+              ? buf.slice(0, bytesRead).toString(this.encoding)
+              : buf.slice(0, bytesRead)
+          )
+          // 继续触发读取
+          this.read()
+        }
       } else {
         // 如果读取完毕
         this.emit('end')
         if (this.autoClose) {
-          fs.close(this.fd, () => {
-            if (!this.close) {
-              this.emit('close')
-              this.close = true
-            }
-          })
+          !fs.close &&
+            fs.close(this.fd, () => {
+              if (!this.close) {
+                this.emit('close')
+                this.close = true
+              }
+            })
         }
       }
     })
@@ -127,7 +141,6 @@ class ReadStream extends EventEmitter {
     this.on('data', data => {
       // 写入流的缓存池是否写满
       const flag = ws.write(data)
-      // 如果写满了的话就暂停读取
       if (!flag) {
         this.pause()
       }
@@ -135,6 +148,7 @@ class ReadStream extends EventEmitter {
 
     ws.on('drain', () => {
       // 当写入流的缓存池清空之后恢复读取
+      console.log('drain')
       this.resume()
     })
   }
