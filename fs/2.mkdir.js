@@ -65,22 +65,22 @@ async function mkFile (dirPath, callback) {
 
   for (let index = 0; index < dirParts.length; index++) {
     const curPath = pathLib.sep + dirParts.slice(0, index + 1).join(pathLib.sep)
+    // 通过是否有后缀名来判断是文件还是文件夹
     const isFile = pathLib.extname(dirParts[index])
     try {
-      // 判断是文件或者文件夹是否存在,如果不存在则会抛出错误
+      // 判断文件或者文件夹是否存在,如果不存在则会抛出错误
       // 捕获错误之后创建即可
       await fsPromises.access(curPath)
     } catch (error) {
-      console.error(error)
       await (isFile
         ? fsPromises.writeFile(curPath, '')
-        : fsPromises.mkFile(curPath))
+        : fsPromises.mkdir(curPath))
     }
   }
 
   typeof callback === 'function' && callback()
 }
 
-mkFile(dirPath1, () => {
-  console.log('创建成功')
+mkFile(dirPath2, () => {
+  console.log(`创建${pathLib.join(__dirname, dirPath1)}成功!`)
 })
