@@ -1,7 +1,7 @@
 const fs = require('fs')
 const fsPromises = require('fs').promises
 const pathLib = require('path')
-const dirPath1 = './c/f/g/h/a.js'
+const dirPath1 = './c/f/g/h/c.js'
 const dirPath2 = './c/d/e/f/b.js'
 
 // 同步创建文件夹
@@ -59,7 +59,7 @@ const dirPath2 = './c/d/e/f/b.js'
 async function mkFile (dirPath, callback) {
   // 使用promise来完成
   const dirParts = pathLib
-    .resolve(dirPath)
+    .join(__dirname, dirPath)
     .split('/')
     .filter(dir => !!dir)
 
@@ -67,8 +67,11 @@ async function mkFile (dirPath, callback) {
     const curPath = pathLib.sep + dirParts.slice(0, index + 1).join(pathLib.sep)
     const isFile = pathLib.extname(dirParts[index])
     try {
+      // 判断是文件或者文件夹是否存在,如果不存在则会抛出错误
+      // 捕获错误之后创建即可
       await fsPromises.access(curPath)
     } catch (error) {
+      console.error(error)
       await (isFile
         ? fsPromises.writeFile(curPath, '')
         : fsPromises.mkFile(curPath))
@@ -78,6 +81,6 @@ async function mkFile (dirPath, callback) {
   typeof callback === 'function' && callback()
 }
 
-mkFile(dirPath2, () => {
+mkFile(dirPath1, () => {
   console.log('创建成功')
 })
